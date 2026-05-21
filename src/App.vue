@@ -1,14 +1,16 @@
 <template>
-  <div class="game-wrapper">
-    <div class="game-container">
-      <canvas id="gameCanvas" ref="canvas" width="400" height="400"></canvas>
+  <div class="game-center">
+    <div class="game-wrapper">
+      <div class="game-container">
+        <canvas ref="canvas" width="400" height="400"></canvas>
+      </div>
+      <div class="info-bar">
+        <div class="level-box">📦 第 {{ currentLevel + 1 }} / {{ totalLevels }} 关</div>
+        <button @click="resetLevel">🔄 重置关卡</button>
+        <div class="message">⭐ 把箱子推到红色星星上 ⭐</div>
+      </div>
+      <div class="controls">🎮 方向键移动 | R 键重置当前关 | 全部通关会有烟花彩蛋！</div>
     </div>
-    <div class="info-bar">
-      <div class="level-box">📦 第 {{ currentLevel + 1 }} / {{ totalLevels }} 关</div>
-      <button @click="resetLevel">🔄 重置关卡</button>
-      <div class="message">⭐ 把箱子推到红色星星上 ⭐</div>
-    </div>
-    <div class="controls">🎮 方向键移动 | R 键重置当前关 | 全部通关会有烟花彩蛋！</div>
   </div>
 </template>
 
@@ -89,6 +91,24 @@ export default {
     window.removeEventListener('keydown', this.handleKeydown)
   },
   methods: {
+    drawStar(cx, cy, r) {
+      this.ctx.fillStyle = '#ff2222'
+      this.ctx.beginPath()
+      for (let i = 0; i < 5; i++) {
+        let angle = Math.PI / 2 + (i * (Math.PI * 2)) / 5
+        let x = cx + Math.cos(angle) * r
+        let y = cy - Math.sin(angle) * r
+        if (i === 0) this.ctx.moveTo(x, y)
+        else this.ctx.lineTo(x, y)
+        angle += Math.PI / 5
+        x = cx + Math.cos(angle) * (r * 0.4)
+        y = cy - Math.sin(angle) * (r * 0.4)
+        this.ctx.lineTo(x, y)
+      }
+      this.ctx.closePath()
+      this.ctx.fill()
+    },
+
     loadLevel(idx) {
       const raw = this.levels[idx]
       this.levelMap = raw.map((row) => [...row])
@@ -113,6 +133,7 @@ export default {
 
     drawGame() {
       this.ctx.clearRect(0, 0, 400, 400)
+
       for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
           const cell = this.levelMap[y][x]
@@ -146,7 +167,7 @@ export default {
         }
       }
 
-      // 绘制玩家
+      // 绘制玩家（可爱工人）
       const px = this.playerX * this.CELL_SIZE + 25
       const py = this.playerY * this.CELL_SIZE + 22
       this.ctx.fillStyle = '#ffcc33'
@@ -166,42 +187,24 @@ export default {
       this.ctx.fillRect(px - 10, py + 12, 20, 14)
     },
 
-    drawStar(cx, cy, r) {
-      this.ctx.fillStyle = '#ff2222'
-      this.ctx.beginPath()
-      for (let i = 0; i < 5; i++) {
-        let angle = Math.PI / 2 + (i * (Math.PI * 2)) / 5
-        let x = cx + Math.cos(angle) * r
-        let y = cy - Math.sin(angle) * r
-        if (i === 0) this.ctx.moveTo(x, y)
-        else this.ctx.lineTo(x, y)
-        angle += Math.PI / 5
-        x = cx + Math.cos(angle) * (r * 0.4)
-        y = cy - Math.sin(angle) * (r * 0.4)
-        this.ctx.lineTo(x, y)
-      }
-      this.ctx.closePath()
-      this.ctx.fill()
-    },
-
-    move(dx, dy) {
+    // 推箱子核心逻辑
+    tryPush(dx, dy) {
       const nx = this.playerX + dx
       const ny = this.playerY + dy
-      if (this.levelMap[ny][nx] === '#') return
-
       const cell = this.levelMap[ny][nx]
-      // 碰到箱子或已经在目标上的箱子需要处理
+
+      // 如果是箱子或已在目标上的箱子
       if (cell === '$' || cell === '*') {
         const nnx = nx + dx
         const nny = ny + dy
-        if (nny < 0 || nny >= 8 || nnx < 0 || nnx >= 8) return
+        if (nny < 0 || nny >= 8 || nnx < 0 || nnx >= 8) return false
         const targetCell = this.levelMap[nny][nnx]
+
         if (targetCell === ' ' || targetCell === '.') {
-          // 推箱子
           const wasOnTarget = cell === '*'
           const willBeOnTarget = targetCell === '.'
 
-          // 更新箱子位置
+          // 移动箱子
           this.levelMap[ny][nx] = wasOnTarget ? '.' : ' '
           this.levelMap[nny][nnx] = willBeOnTarget ? '*' : '$'
 
@@ -211,16 +214,36 @@ export default {
           // 移动玩家
           this.playerX = nx
           this.playerY = ny
-          this.drawGame()
-          this.checkWin()
+          return true
         }
-        return
+        return false
       }
+      return false
+    },
 
-      // 普通移动
+    // 普通移动
+    tryMove(dx, dy) {
+      const nx = this.playerX + dx
+      const ny = this.playerY + dy
+      const cell = this.levelMap[ny][nx]
+
       if (cell === ' ' || cell === '.') {
         this.playerX = nx
         this.playerY = ny
+        return true
+      }
+      return false
+    },
+
+    handleMove(dx, dy) {
+      // 尝试推箱子
+      if (this.tryPush(dx, dy)) {
+        this.drawGame()
+        this.checkWin()
+        return
+      }
+      // 尝试普通移动
+      if (this.tryMove(dx, dy)) {
         this.drawGame()
       }
     },
@@ -249,19 +272,19 @@ export default {
       switch (key) {
         case 'ArrowUp':
           e.preventDefault()
-          this.move(0, -1)
+          this.handleMove(0, -1)
           break
         case 'ArrowDown':
           e.preventDefault()
-          this.move(0, 1)
+          this.handleMove(0, 1)
           break
         case 'ArrowLeft':
           e.preventDefault()
-          this.move(-1, 0)
+          this.handleMove(-1, 0)
           break
         case 'ArrowRight':
           e.preventDefault()
-          this.move(1, 0)
+          this.handleMove(1, 0)
           break
         case 'r':
         case 'R':
@@ -284,10 +307,12 @@ export default {
         const dy = Math.sin(angle) * distance
         circle.style.cssText = `
           position: fixed;
-          width: 8px; height: 8px;
+          width: 8px;
+          height: 8px;
           background: hsl(${Math.random() * 360}, 100%, 60%);
           border-radius: 50%;
-          left: 50%; top: 50%;
+          left: 50%;
+          top: 50%;
           pointer-events: none;
           transform: translate(-50%, -50%);
           animation: firework 1.4s ease-out forwards;
@@ -304,7 +329,21 @@ export default {
 <style scoped>
 * {
   user-select: none;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
+
+.game-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 100vh;
+  background: linear-gradient(145deg, #1e5a3a 0%, #0f3b24 100%);
+  padding: 20px;
+}
+
 .game-wrapper {
   background: #d9b382;
   padding: 25px 30px 20px 30px;
@@ -312,8 +351,8 @@ export default {
   box-shadow:
     0 20px 0 #7a4c2c,
     inset 0 1px 4px rgba(255, 255, 200, 0.8);
-  display: inline-block;
 }
+
 .game-container {
   background: #2c1e12;
   padding: 20px;
@@ -323,6 +362,7 @@ export default {
     inset 0 0 0 3px #f7e5b5,
     0 10px 20px rgba(0, 0, 0, 0.3);
 }
+
 canvas {
   display: block;
   margin: 0 auto;
@@ -331,6 +371,7 @@ canvas {
   box-shadow: 0 6px 0 #5a3a22;
   cursor: pointer;
 }
+
 .info-bar {
   display: flex;
   justify-content: space-between;
@@ -339,6 +380,7 @@ canvas {
   gap: 15px;
   flex-wrap: wrap;
 }
+
 .level-box {
   background: #2d2218;
   color: #ffdd99;
@@ -352,6 +394,7 @@ canvas {
     inset 0 1px 3px #826a48,
     0 3px 0 #2a1a0c;
 }
+
 button {
   background: #ffbb77;
   border: none;
@@ -365,10 +408,12 @@ button {
   box-shadow: 0 4px 0 #a5622c;
   color: #2e241a;
 }
+
 button:active {
   transform: translateY(2px);
   box-shadow: 0 1px 0 #a5622c;
 }
+
 .message {
   background: #000000aa;
   backdrop-filter: blur(8px);
@@ -378,6 +423,7 @@ button:active {
   font-weight: bold;
   font-size: 16px;
 }
+
 .controls {
   background: #2d241cb3;
   border-radius: 50px;
@@ -387,6 +433,7 @@ button:active {
   margin-top: 12px;
   text-align: center;
 }
+
 @media (max-width: 550px) {
   .game-wrapper {
     padding: 15px;
@@ -400,7 +447,6 @@ button:active {
   }
 }
 
-/* 烟花动画 */
 @keyframes firework {
   0% {
     transform: translate(-50%, -50%);
